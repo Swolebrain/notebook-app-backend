@@ -2,6 +2,10 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const app = express();
 const port = 3000;
+const jwt = require('jsonwebtoken');
+const AWS = require('aws-sdk');
+const { VerifiedPermissionsClient, ListPoliciesCommand } = require("@aws-sdk/client-verifiedpermissions");
+const base64url = require('base64url');
 
 app.use(bodyParser.json());
 
@@ -124,8 +128,45 @@ app.delete('/notebooks/:notebookId/notes/:noteId', (req, res) => {
     }
 });
 
-app.get('/notebooks/sharedWithMe', (req, res) => {
-    
+// Configure AWS SDK v3
+const verifiedPermissionsClient = new VerifiedPermissionsClient({
+    region: 'us-east-1', // replace with your AWS region
+    // Add any necessary configuration, such as credentials
+});
+
+app.get('/notebooks/shared-with-me', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+            return res.status(500).send('Authorization header missing after auth middleware');
+        }
+
+        const token = authHeader.split(' ')[1];
+        const payload = JSON.parse(base64url.decode(token.split('.')[1]));
+        const userId = payload.sub;
+
+        const params = {
+            policyStoreId: process.env.POLICY_STORE_ID,
+            maxResults: 20,
+            filter: {
+                principal: {
+                    identifier: {
+                        entityType: 'NotebooksApp::User',
+                        entityId: userId
+                    }
+                }
+            }
+        };
+
+        const command = new ListPoliciesCommand(params);
+        const response = await verifiedPermissionsClient.send(command);
+        const resourceIds = response.policies.map(policy => policy.resource);
+
+        res.json(resourceIds);
+    } catch (error) {
+        console.error('Error fetching shared notebooks:', error);
+        res.status(500).send('Internal server error');
+    }
 });
 
 

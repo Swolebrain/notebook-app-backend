@@ -1,0 +1,21 @@
+{
+  "name": "sample-express-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon index.js",
+    "runscriptthatgetsfilefromcwd": "NODE_ENV=AVP_AUTH_MIDDLEWARE npx ../authmiddleware `pwd`/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.1.0",
+    "authmiddleware": "file:../authmiddleware"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}

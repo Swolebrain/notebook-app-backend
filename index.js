@@ -1,17 +1,14 @@
 const express = require('express');
 const bodyParser = require('body-parser');
+const { apAuthorizerMiddleware } = require('authmiddleware');
 const app = express();
 const port = 3000;
-const jwt = require('jsonwebtoken');
-const AWS = require('aws-sdk');
 const { VerifiedPermissionsClient, ListPoliciesCommand } = require("@aws-sdk/client-verifiedpermissions");
-const base64url = require('base64url');
 
 app.use(bodyParser.json());
 
 // In-memory storage (replace with database in production)
 let notebooks = [];
-let weapons = [];
 
 // Helper function to find a notebook by ID
 function findNotebook(id) {
@@ -22,10 +19,18 @@ app.use(express.json());
 
 app.use(express.urlencoded({ extended: true }));
 
+app.use(apAuthorizerMiddleware({
+    policyStoreId: 'asd',
+    tokenType: 'identityToken',
+    namespace: 'myapp',
+    openEndpoints: [
+        '/notebooks/shared-with-me',
+    ]
+}));
 
 // Notebooks endpoints
 app.get('/notebooks', (req, res) => {
-    res.json(notebooks);
+    res.json(notebooks.filter(notebook => notebook.owner === req.user.id));
 });
 
 app.post('/notebooks', (req, res) => {
@@ -34,7 +39,7 @@ app.post('/notebooks', (req, res) => {
     res.status(201).json(notebook);
 });
 
-app.get('/notebooks/:id', (req, res) => {
+app.get('/notebooks/:id', function getNotebookById(req, res) {
     const notebook = findNotebook(req.params.id);
     if (notebook) {
         res.json(notebook);
@@ -129,10 +134,7 @@ app.delete('/notebooks/:notebookId/notes/:noteId', (req, res) => {
 });
 
 // Configure AWS SDK v3
-const verifiedPermissionsClient = new VerifiedPermissionsClient({
-    region: 'us-east-1', // replace with your AWS region
-    // Add any necessary configuration, such as credentials
-});
+const verifiedPermissionsClient = new VerifiedPermissionsClient();
 
 app.get('/notebooks/shared-with-me', async (req, res) => {
     try {
@@ -142,7 +144,9 @@ app.get('/notebooks/shared-with-me', async (req, res) => {
         }
 
         const token = authHeader.split(' ')[1];
-        const payload = JSON.parse(base64url.decode(token.split('.')[1]));
+        const payloadBase64 = token.split('.')[1];
+        const payloadJson = Buffer.from(payloadBase64, 'base64').toString('utf-8');
+        const payload = JSON.parse(payloadJson);
         const userId = payload.sub;
 
         const params = {

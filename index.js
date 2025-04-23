@@ -8,7 +8,39 @@ const { VerifiedPermissionsClient, ListPoliciesCommand } = require("@aws-sdk/cli
 app.use(bodyParser.json());
 
 // In-memory storage (replace with database in production)
-let notebooks = [];
+const notebooks = [
+    {
+        id: '1',
+        name: 'Work Projects',
+        owner: 'b5e2612d-4eb7-4265-b4b5-4c845a2825f7',
+        content: 'Work ProjectsWork ProjectsWork ProjectsWork ProjectsWork ProjectsWork Projects'
+    },
+    {
+        id: '2',
+        name: 'Personal Journal',
+        owner: 'b5e2612d-4eb7-4265-b4b5-4c845a2825f7',
+        contents: '@@@ Personal JournalPersonal JournalPersonal JournalPersonal JournalPersonal Journal'
+    },
+    {
+        id: '3',
+        name: 'Recipe Collection',
+        owner: '81d58348-a380-4ee9-a864-4d3d62915307',
+        contents: 'Recipe CollectionRecipe CollectionRecipe CollectionRecipe CollectionRecipe CollectionRecipe Collection'
+    },
+    {
+        id: '4',
+        name: 'Travel Plans',
+        owner: '81d58348-a380-4ee9-a864-4d3d62915307',
+        contents: 'EuropeEuropeEuropeEuropeEuropeEuropeEurope'
+    },
+    {
+        id: '5',
+        name: 'Study Notes',
+        owner: 'b5e2612d-4eb7-4265-b4b5-4c845a2825f7',
+        contents: 'formal verification, must, tla+'
+    }
+];
+
 
 // Helper function to find a notebook by ID
 function findNotebook(id) {
@@ -19,25 +51,46 @@ app.use(express.json());
 
 app.use(express.urlencoded({ extended: true }));
 
+app.use((req, res, next) => {
+    const allowedOrigin = 'http://localhost:5173'; // set this differently depending on env
+    res.header('Access-Control-Allow-Origin', allowedOrigin);
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
+
 app.use(apAuthorizerMiddleware({
-    policyStoreId: 'asd',
+    policyStoreId: 'Ns3X5naAK4NvTF9kdNHUEC',
     tokenType: 'identityToken',
-    namespace: 'myapp',
-    openEndpoints: [
+    namespace: 'NotebooksApp',
+    skippedEndpoints: [
         '/notebooks/shared-with-me',
-    ]
+        '/login',
+        '/signup'
+    ],
 }));
 
 // Notebooks endpoints
 app.get('/notebooks', (req, res) => {
-    res.json(notebooks.filter(notebook => notebook.owner === req.user.id));
+    const principalSub = (req.avpInfo?.principal?.entityId || '').split('|')[1];
+    res.json(notebooks.filter(notebook => notebook.owner === principalSub));
 });
 
 app.post('/notebooks', (req, res) => {
-    const notebook = { id: Date.now().toString(), name: req.body.name, notes: [] };
+    const principalSub = (req.avpInfo?.principal?.entityId || '').split('|')[1];
+    const notebook = {
+        id: Date.now().toString(),
+        name: req.body.name,
+        notes: []
+    };
     notebooks.push(notebook);
     res.status(201).json(notebook);
 });
+
 
 app.get('/notebooks/:id', function getNotebookById(req, res) {
     const notebook = findNotebook(req.params.id);

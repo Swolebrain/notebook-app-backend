@@ -1,51 +1,18 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const { apAuthorizerMiddleware } = require('authmiddleware');
+const fs = require('fs');
+const path = require('path');
 const app = express();
 const port = 3000;
 const { VerifiedPermissionsClient, ListPoliciesCommand } = require("@aws-sdk/client-verifiedpermissions");
+const { notebooksRepository } = require('./nodebookrepository');
+const expressOasGenerator = require('express-oas-generator');
+const { ExpressAuthorizationMiddleware, CedarInlineAuthorizer } = require('@cedar-policy/express-authorization');
+const { AVPAuthorizer } = require('@verifiedpermissions/authorization-clients');
+
+expressOasGenerator.handleResponses(app, {});
 
 app.use(bodyParser.json());
-
-// In-memory storage (replace with database in production)
-const notebooks = [
-    {
-        id: '1',
-        name: 'Work Projects',
-        owner: 'b5e2612d-4eb7-4265-b4b5-4c845a2825f7',
-        content: 'Work ProjectsWork ProjectsWork ProjectsWork ProjectsWork ProjectsWork Projects'
-    },
-    {
-        id: '2',
-        name: 'Personal Journal',
-        owner: 'b5e2612d-4eb7-4265-b4b5-4c845a2825f7',
-        contents: '@@@ Personal JournalPersonal JournalPersonal JournalPersonal JournalPersonal Journal'
-    },
-    {
-        id: '3',
-        name: 'Recipe Collection',
-        owner: '81d58348-a380-4ee9-a864-4d3d62915307',
-        contents: 'Recipe CollectionRecipe CollectionRecipe CollectionRecipe CollectionRecipe CollectionRecipe Collection'
-    },
-    {
-        id: '4',
-        name: 'Travel Plans',
-        owner: '81d58348-a380-4ee9-a864-4d3d62915307',
-        contents: 'EuropeEuropeEuropeEuropeEuropeEuropeEurope'
-    },
-    {
-        id: '5',
-        name: 'Study Notes',
-        owner: 'b5e2612d-4eb7-4265-b4b5-4c845a2825f7',
-        contents: 'formal verification, must, tla+'
-    }
-];
-
-
-// Helper function to find a notebook by ID
-function findNotebook(id) {
-    return notebooks.find(notebook => notebook.id === id);
-}
 
 app.use(express.json());
 
@@ -63,37 +30,90 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(apAuthorizerMiddleware({
+const policies = [
+    'permit(principal == NotebooksApp::User::"Victor", action, resource);',
+    'permit(principal == NotebooksApp::User::"Brian", action == NotebooksApp::Action::"get /notebooks", resource);',
+    `permit(principal == NotebooksApp::User::"Abhi", action == NotebooksApp::Action::"get /notebooks/:id", resource) when {
+        context.pathParams.id == "1"
+    };`,
+];
+
+const avpAuthorizer = new AVPAuthorizer({
     policyStoreId: 'Ns3X5naAK4NvTF9kdNHUEC',
-    tokenType: 'identityToken',
-    namespace: 'NotebooksApp',
+    callType: 'identityToken',
+});
+
+// const cedarAuthorizer = new CedarInlineAuthorizer({
+//     staticPolicies: policies.join('\n'),
+// });
+
+
+
+const expressAuthorizationMiddleware = new ExpressAuthorizationMiddleware({
+    schema: JSON.parse(fs.readFileSync(path.join(__dirname, 'v4.cedarschema.json'), 'utf8')),
+    authorizer: avpAuthorizer,
+    principalConfiguration: { type: 'identityToken' },
+    // authorizer: cedarAuthorizer,
+    // principalConfiguration: {
+    //     type: 'custom',
+    //     getPrincipalEntity: async (req) => {
+    //         // in a real app this would be based on req.user, which in turn comes from token
+    //         return {
+    //             uid: {
+    //                 type: 'NotebooksApp::User',
+    //                 id: 'Brian'
+    //             },
+    //             attrs: {},
+    //             parents: [],
+    //         };
+    //     }
+    // },
     skippedEndpoints: [
-        '/notebooks/shared-with-me',
         '/login',
-        '/signup'
+        '/api-spec/v3'
     ],
-}));
+});
+
+app.use(expressAuthorizationMiddleware.middleware);
 
 // Notebooks endpoints
 app.get('/notebooks', (req, res) => {
-    const principalSub = (req.avpInfo?.principal?.entityId || '').split('|')[1];
-    res.json(notebooks.filter(notebook => notebook.owner === principalSub));
+    const principalSub = (res.locals.authorizerInfo?.principal?.id || '').split('|')[1];
+    console.log('keys in req', Object.keys(req));
+    console.log('authorizerInfo in res', res.locals.authorizerInfo);
+    console.log('principalSub', principalSub);
+    const notebooks = notebooksRepository.findByOwner(principalSub);
+    res.json(notebooks);
 });
 
 app.post('/notebooks', (req, res) => {
-    const principalSub = (req.avpInfo?.principal?.entityId || '').split('|')[1];
+    const principalSub = (req.authorizerInfo?.principal?.id || '').split('|')[1];
     const notebook = {
         id: Date.now().toString(),
         name: req.body.name,
-        notes: []
+        owner: principalSub,
+        content: req.body.content
     };
-    notebooks.push(notebook);
+    notebooksRepository.saveNotebook(notebook);
     res.status(201).json(notebook);
 });
 
-
-app.get('/notebooks/:id', function getNotebookById(req, res) {
-    const notebook = findNotebook(req.params.id);
+app.get('/notebooks/:id',
+//   avpAuthorizerFactory({
+//       resource: (req) => {
+//           return {
+//               uid: {
+//                   type: `NotebooksApp::Notebook`,
+//                   id: req.params.id,
+//               },
+//               attrs: notebooksRepository.findById(req.params.id),
+//               parents: [],
+//           }
+//       }
+//   }),
+  function getNotebookById(req, res) {
+    console.log(req.params);
+    const notebook = notebooksRepository.findById(req.params.$id);
     if (notebook) {
         res.json(notebook);
     } else {
@@ -102,9 +122,8 @@ app.get('/notebooks/:id', function getNotebookById(req, res) {
 });
 
 app.put('/notebooks/:id', (req, res) => {
-    const notebook = findNotebook(req.params.id);
+    const notebook = notebooksRepository.putNotebook(req.body);
     if (notebook) {
-        notebook.name = req.body.name;
         res.json(notebook);
     } else {
         res.status(404).send('Notebook not found');
@@ -112,78 +131,7 @@ app.put('/notebooks/:id', (req, res) => {
 });
 
 app.delete('/notebooks/:id', (req, res) => {
-    const index = notebooks.findIndex(notebook => notebook.id === req.params.id);
-    if (index !== -1) {
-        notebooks.splice(index, 1);
-        res.status(204).send();
-    } else {
-        res.status(404).send('Notebook not found');
-    }
-});
-
-// Notes endpoints (nested under notebooks)
-app.get('/notebooks/:notebookId/notes', (req, res) => {
-    const notebook = findNotebook(req.params.notebookId);
-    if (notebook) {
-        res.json(notebook.notes);
-    } else {
-        res.status(404).send('Notebook not found');
-    }
-});
-
-app.post('/notebooks/:notebookId/notes', (req, res) => {
-    const notebook = findNotebook(req.params.notebookId);
-    if (notebook) {
-        const note = { id: Date.now().toString(), content: req.body.content };
-        notebook.notes.push(note);
-        res.status(201).json(note);
-    } else {
-        res.status(404).send('Notebook not found');
-    }
-});
-
-app.get('/notebooks/:notebookId/notes/:noteId', (req, res) => {
-    const notebook = findNotebook(req.params.notebookId);
-    if (notebook) {
-        const note = notebook.notes.find(note => note.id === req.params.noteId);
-        if (note) {
-            res.json(note);
-        } else {
-            res.status(404).send('Note not found');
-        }
-    } else {
-        res.status(404).send('Notebook not found');
-    }
-});
-
-app.put('/notebooks/:notebookId/notes/:noteId', (req, res) => {
-    const notebook = findNotebook(req.params.notebookId);
-    if (notebook) {
-        const note = notebook.notes.find(note => note.id === req.params.noteId);
-        if (note) {
-            note.content = req.body.content;
-            res.json(note);
-        } else {
-            res.status(404).send('Note not found');
-        }
-    } else {
-        res.status(404).send('Notebook not found');
-    }
-});
-
-app.delete('/notebooks/:notebookId/notes/:noteId', (req, res) => {
-    const notebook = findNotebook(req.params.notebookId);
-    if (notebook) {
-        const index = notebook.notes.findIndex(note => note.id === req.params.noteId);
-        if (index !== -1) {
-            notebook.notes.splice(index, 1);
-            res.status(204).send();
-        } else {
-            res.status(404).send('Note not found');
-        }
-    } else {
-        res.status(404).send('Notebook not found');
-    }
+    notebooksRepository.deleteNotebook(req.params.id);
 });
 
 // Configure AWS SDK v3
@@ -227,14 +175,9 @@ app.get('/notebooks/shared-with-me', async (req, res) => {
 });
 
 
-const { listEndpointsHandler } = require('authmiddleware');
-
-if (process.env.NODE_ENV === 'AVP_AUTH_MIDDLEWARE') {
-    app.get('/list-endpoints', listEndpointsHandler);
-}
+expressOasGenerator.handleRequests();
 
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
 });
 
-module.exports = app;

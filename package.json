@@ -13,10 +13,12 @@
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-verifiedpermissions": "^3.788.0",
-    "authmiddleware": "file:../authmiddleware",
-    "express": "^5.1.0"
+    "@cedar-policy/express-authorization": "file:../../express-brazil/src/Cedar-ExpressJS",
+    "@verifiedpermissions/authorization-clients": "file:/../../express-brazil/src/Verifiedpermissions-Authorization-clients-JS",
+    "express": "^4.21.2"
   },
   "devDependencies": {
+    "express-oas-generator": "^1.0.48",
     "nodemon": "^3.1.9"
   }
 }

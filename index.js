@@ -6,11 +6,6 @@ const app = express();
 const port = 3000;
 const { VerifiedPermissionsClient, ListPoliciesCommand } = require("@aws-sdk/client-verifiedpermissions");
 const { notebooksRepository } = require('./nodebookrepository');
-const expressOasGenerator = require('express-oas-generator');
-const { ExpressAuthorizationMiddleware, CedarInlineAuthorizer } = require('@cedar-policy/express-authorization');
-const { AVPAuthorizer } = require('@verifiedpermissions/authorization-clients');
-
-expressOasGenerator.handleResponses(app, {});
 
 app.use(bodyParser.json());
 
@@ -30,55 +25,9 @@ app.use((req, res, next) => {
     next();
 });
 
-const policies = [
-    'permit(principal == NotebooksApp::User::"Victor", action, resource);',
-    'permit(principal == NotebooksApp::User::"Brian", action == NotebooksApp::Action::"get /notebooks", resource);',
-    `permit(principal == NotebooksApp::User::"Abhi", action == NotebooksApp::Action::"get /notebooks/:id", resource) when {
-        context.pathParams.id == "1"
-    };`,
-];
-
-const avpAuthorizer = new AVPAuthorizer({
-    policyStoreId: 'Ns3X5naAK4NvTF9kdNHUEC',
-    callType: 'identityToken',
-});
-
-// const cedarAuthorizer = new CedarInlineAuthorizer({
-//     staticPolicies: policies.join('\n'),
-// });
-
-
-
-const expressAuthorizationMiddleware = new ExpressAuthorizationMiddleware({
-    schema: JSON.parse(fs.readFileSync(path.join(__dirname, 'v4.cedarschema.json'), 'utf8')),
-    authorizer: avpAuthorizer,
-    principalConfiguration: { type: 'identityToken' },
-    // authorizer: cedarAuthorizer,
-    // principalConfiguration: {
-    //     type: 'custom',
-    //     getPrincipalEntity: async (req) => {
-    //         // in a real app this would be based on req.user, which in turn comes from token
-    //         return {
-    //             uid: {
-    //                 type: 'NotebooksApp::User',
-    //                 id: 'Brian'
-    //             },
-    //             attrs: {},
-    //             parents: [],
-    //         };
-    //     }
-    // },
-    skippedEndpoints: [
-        '/login',
-        '/api-spec/v3'
-    ],
-});
-
-app.use(expressAuthorizationMiddleware.middleware);
-
 // Notebooks endpoints
 app.get('/notebooks', (req, res) => {
-    const principalSub = (res.locals.authorizerInfo?.principal?.id || '').split('|')[1];
+    const principalSub = (res.locals.authorizerInfo?.principalUid?.id || '').split('|')[1];
     console.log('keys in req', Object.keys(req));
     console.log('authorizerInfo in res', res.locals.authorizerInfo);
     console.log('principalSub', principalSub);
@@ -99,21 +48,9 @@ app.post('/notebooks', (req, res) => {
 });
 
 app.get('/notebooks/:id',
-//   avpAuthorizerFactory({
-//       resource: (req) => {
-//           return {
-//               uid: {
-//                   type: `NotebooksApp::Notebook`,
-//                   id: req.params.id,
-//               },
-//               attrs: notebooksRepository.findById(req.params.id),
-//               parents: [],
-//           }
-//       }
-//   }),
   function getNotebookById(req, res) {
     console.log(req.params);
-    const notebook = notebooksRepository.findById(req.params.$id);
+    const notebook = notebooksRepository.findById(req.params.id);
     if (notebook) {
         res.json(notebook);
     } else {
@@ -174,8 +111,6 @@ app.get('/notebooks/shared-with-me', async (req, res) => {
     }
 });
 
-
-expressOasGenerator.handleRequests();
 
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);

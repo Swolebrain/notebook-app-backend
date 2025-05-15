@@ -8,8 +8,6 @@ const { VerifiedPermissionsClient, ListPoliciesCommand } = require("@aws-sdk/cli
 const { notebooksRepository } = require('./notebookRepository');
 const verifyToken = require('./middleware/authMiddleware');
 
-app.use(bodyParser.json());
-
 app.use(express.json());
 
 app.use(express.urlencoded({ extended: true }));
@@ -31,22 +29,23 @@ app.use(verifyToken);
 
 app.get('/notebooks', (req, res) => {
     const principalSub = req.user.sub; // Use the sub from the verified JWT
-    console.log('keys in req', Object.keys(req));
-    console.log('user from JWT', req.user);
-    console.log('principalSub', principalSub);
+    console.log(req.user);
     const notebooks = notebooksRepository.findByOwner(principalSub);
     res.json(notebooks);
 });
 
 app.post('/notebooks', (req, res) => {
     const principalSub = req.user.sub; // Use the sub from the verified JWT
+    const id = Date.now().toString();
+    console.log('received body', req.body);
     const notebook = {
-        id: Date.now().toString(),
+        id,
         name: req.body.name,
         owner: principalSub,
         content: req.body.content
     };
     notebooksRepository.saveNotebook(notebook);
+    console.log(notebooksRepository.findById(id));
     res.status(201).json(notebook);
 });
 

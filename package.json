@@ -21,6 +21,7 @@
     "jwks-rsa": "^3.2.0"
   },
   "devDependencies": {
+    "express-openapi-generator": "^1.2.0",
     "nodemon": "^3.1.9"
   }
 }

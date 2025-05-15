@@ -45,10 +45,11 @@ class NotebooksRepository {
         const notebookId = notebook.id;
         const n = notebooks.find(notebook => notebook.id === notebookId);
         if (!n) {
-          return null;
+          notebooks.push(notebook);
+        } else {
+          n.name = notebook.name;
+          n.content = notebook.content;
         }
-        n.name = notebook.name;
-        n.content = notebook.content;
         return n;
     }
     deleteNotebook(notebookId) {

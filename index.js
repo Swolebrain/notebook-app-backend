@@ -5,7 +5,8 @@ const path = require('path');
 const app = express();
 const port = 3000;
 const { VerifiedPermissionsClient, ListPoliciesCommand } = require("@aws-sdk/client-verifiedpermissions");
-const { notebooksRepository } = require('./nodebookrepository');
+const { notebooksRepository } = require('./notebookRepository');
+const verifyToken = require('./middleware/authMiddleware');
 
 app.use(bodyParser.json());
 
@@ -25,18 +26,20 @@ app.use((req, res, next) => {
     next();
 });
 
-// Notebooks endpoints
+// Apply the JWT verification middleware to protected routes
+app.use(verifyToken);
+
 app.get('/notebooks', (req, res) => {
-    const principalSub = (res.locals.authorizerInfo?.principalUid?.id || '').split('|')[1];
+    const principalSub = req.user.sub; // Use the sub from the verified JWT
     console.log('keys in req', Object.keys(req));
-    console.log('authorizerInfo in res', res.locals.authorizerInfo);
+    console.log('user from JWT', req.user);
     console.log('principalSub', principalSub);
     const notebooks = notebooksRepository.findByOwner(principalSub);
     res.json(notebooks);
 });
 
 app.post('/notebooks', (req, res) => {
-    const principalSub = (req.authorizerInfo?.principal?.id || '').split('|')[1];
+    const principalSub = req.user.sub; // Use the sub from the verified JWT
     const notebook = {
         id: Date.now().toString(),
         name: req.body.name,
@@ -76,16 +79,7 @@ const verifiedPermissionsClient = new VerifiedPermissionsClient();
 
 app.get('/notebooks/shared-with-me', async (req, res) => {
     try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-            return res.status(500).send('Authorization header missing after auth middleware');
-        }
-
-        const token = authHeader.split(' ')[1];
-        const payloadBase64 = token.split('.')[1];
-        const payloadJson = Buffer.from(payloadBase64, 'base64').toString('utf-8');
-        const payload = JSON.parse(payloadJson);
-        const userId = payload.sub;
+        const userId = req.user.sub; // Use the sub from the verified JWT
 
         const params = {
             policyStoreId: process.env.POLICY_STORE_ID,
@@ -111,8 +105,6 @@ app.get('/notebooks/shared-with-me', async (req, res) => {
     }
 });
 
-
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
 });
-
